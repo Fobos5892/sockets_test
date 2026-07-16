@@ -13,7 +13,15 @@ C++ клиент и сервер для Linux с протоколом Modbus TCP
 ./build.sh tests --clean
 ```
 
-Параметры: `server|client|tests|modbus_tests|all`, `-t Debug|Release`, `-c/--clean`, `-j N`.
+Параметры: `server|client|tests|modbus_tests|modbus_bench|bench|check|asan|all`, `-t Debug|Release` (`Release` = `-O3 -DNDEBUG`), `--no-sanitize`, `-c/--clean`, `-j N`.
+
+Unit-тесты по умолчанию идут под **ASan/UBSan/LSan**. Отключить: `--no-sanitize`.
+
+Полная проверка unit + bench:
+
+```bash
+./build.sh check -t Release
+```
 
 Или вручную через CMake (таргет обязателен):
 
@@ -33,11 +41,19 @@ cmake --build build --target client
 ## Запуск
 
 ```bash
-./out/Debug/server config/server.conf
-./out/Debug/client config/client.conf
+./out/Debug/server
+./out/Debug/client
+./out/Debug/client client2.conf
 ```
 
-Для второго клиента создайте отдельный конфиг с другим `nickname`.
+Бинарники автоматически читают конфиги из подкаталога `config/` рядом с собой.
+После сборки шаблоны копируются в `out/<Debug|Release>/config/`:
+
+- `server.conf` — настройки сервера (`bind_ip`, `port`)
+- `client.conf` — настройки клиента (`server_ip`, `port`, `nickname`)
+- `client2.conf` — второй клиент с другим `nickname`
+
+Изменяйте эти файлы перед запуском. Путь к конфигу можно передать аргументом (`client2.conf` или `config/client2.conf`).
 
 ## Формат сообщений
 
@@ -108,21 +124,67 @@ MBAP header + PDU:
 ## Тесты
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build --target modbus_tests
-ctest --test-dir build --output-on-failure
+./build.sh tests                 # ASan/UBSan/LSan по умолчанию
+./build.sh tests --no-sanitize   # без санитайзеров
 ```
 
-Покрытие:
+Через `./build.sh tests` в конце:
+`SANITIZER: OK` и `PASSED: x, FAILED: y, UNAVAILABLE: z`
+
+Покрытие (client + server):
 
 - `Config` — парсинг конфигов и значения по умолчанию
 - `ModbusTcp` — encode/decode и socketpair read/write
 - `Protocol` — round-trip всех типов сообщений
 - `Message` — шаблонный serialize/deserialize и парсинг `recipient:text`
-- Integration — assign id, доставка по id/nickname, ошибки, presence, список пользователей
+- Client — `parse_input_line`, `OutgoingMessageBuilder`, `IncomingMessagePresenter`
+- Server — `ClientRegistry`, `MessageDispatcher` через `MemoryMessageTransport` (без TCP)
+- Integration — assign id, доставка по id/nickname, ошибки, presence, список пользователей (реальный TCP)
+
+Общие моки: [`testing/MemoryMessageTransport.hpp`](testing/MemoryMessageTransport.hpp), [`testing/NullViews.hpp`](testing/NullViews.hpp).
+
+## Санитайзеры (утечки / UB)
+
+Включены **по умолчанию** для `./build.sh tests`, `modbus_tests`, `check`, `all` (часть с тестами).
+
+На Linux ASan включает **LeakSanitizer**. Каталог: `build-asan`, артефакты: `out/Debug-asan/`.
+
+```bash
+./build.sh tests              # с санитайзерами
+./build.sh tests --no-sanitize # без них
+```
+
+При падении смотрите `ERROR: AddressSanitizer` / `LeakSanitizer` / `UndefinedBehaviorSanitizer`. CI job `test` тоже гоняет sanitized tests.
+
+## Бенчмарки
+
+Google Benchmark, рекомендуется **Release (`-O3`)**:
+
+```bash
+./build.sh bench -t Release
+# или вместе с unit-тестами:
+./build.sh check -t Release
+```
+
+Фильтры и JSON:
+
+```bash
+./out/Release/modbus_bench --benchmark_filter=Client|Server|E2E
+./out/Release/modbus_bench --benchmark_format=json --benchmark_out=bench.json
+```
+
+Что меряется (без сокетов, через memory mock):
+
+- common: `ModbusTcp`, `Protocol`, `Message`
+- server: `ClientRegistry`, e2e dispatcher Chat/ListUsers
+- client: parser/builder/presenter, e2e send/receive
+- round-trip: client → server dispatch → client present
 
 ## CI
 
 GitHub Actions workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 
-На каждый push/PR: configure, сборка `server`, `client`, `modbus_tests`, запуск `ctest`.
+На каждый push/PR:
+
+- job `test`: `server`/`client`/`modbus_bench` + unit-тесты под ASan/UBSan/LSan
+- job `bench`: Release (`-O3`) `modbus_bench`, JSON artifact (без fail по latency)

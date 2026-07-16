@@ -10,7 +10,8 @@
 #include <memory>
 
 int main(int argc, char* argv[]) {
-    const std::string config_path = (argc > 1) ? argv[1] : "config/client.conf";
+    const std::string config_path =
+        Config::resolve_config_path(argv[0], "client.conf", argc > 1 ? argv[1] : nullptr);
 
     try {
         ClientConfig config = ClientConfig::from_file(config_path);

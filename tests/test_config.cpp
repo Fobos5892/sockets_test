@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <climits>
+#include <unistd.h>
+
 #include "tests/test_utils.hpp"
 
 TEST(ConfigTest, LoadsKeyValuePairs) {
@@ -38,4 +41,41 @@ TEST(ConfigTest, ClientConfigFromFileUsesDefaults) {
 
 TEST(ConfigTest, MissingFileThrows) {
     EXPECT_THROW(Config::load("/tmp/modbus_missing_config_12345.conf"), std::runtime_error);
+}
+
+TEST(ConfigTest, ResolveConfigPathUsesExecutableConfigDir) {
+    char exe_path[PATH_MAX];
+    const ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    ASSERT_GT(len, 0);
+    exe_path[len] = '\0';
+
+    std::string exe_dir(exe_path);
+    const auto pos = exe_dir.find_last_of('/');
+    ASSERT_NE(pos, std::string::npos);
+    exe_dir = exe_dir.substr(0, pos);
+
+    const std::string path = Config::resolve_config_path(exe_path, "server.conf", nullptr);
+    EXPECT_EQ(path, exe_dir + "/config/server.conf");
+}
+
+TEST(ConfigTest, ResolveConfigPathAcceptsConfigFilename) {
+    char exe_path[PATH_MAX];
+    const ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    ASSERT_GT(len, 0);
+    exe_path[len] = '\0';
+
+    std::string exe_dir(exe_path);
+    const auto pos = exe_dir.find_last_of('/');
+    ASSERT_NE(pos, std::string::npos);
+    exe_dir = exe_dir.substr(0, pos);
+
+    const std::string path =
+        Config::resolve_config_path(exe_path, "client.conf", "client2.conf");
+    EXPECT_EQ(path, exe_dir + "/config/client2.conf");
+}
+
+TEST(ConfigTest, ResolveConfigPathAcceptsAbsolutePath) {
+    const std::string path = Config::resolve_config_path("/tmp/out/Debug/client", "client.conf",
+                                                         "/etc/modbus/client.conf");
+    EXPECT_EQ(path, "/etc/modbus/client.conf");
 }

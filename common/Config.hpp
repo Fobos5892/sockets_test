@@ -7,6 +7,8 @@
 class Config {
 public:
     static Config load(const std::string& path);
+    static std::string resolve_config_path(const char* argv0, const std::string& default_filename,
+                                           const char* override_path = nullptr);
 
     std::string get(const std::string& key, const std::string& default_value = "") const;
 

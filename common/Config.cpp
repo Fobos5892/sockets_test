@@ -1,8 +1,37 @@
 #include "Config.hpp"
 
+#include <climits>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <unistd.h>
+
+namespace {
+
+std::string executable_dir(const char* argv0) {
+    char buf[PATH_MAX];
+    const ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len > 0) {
+        buf[len] = '\0';
+        std::string path(buf);
+        const auto pos = path.find_last_of('/');
+        if (pos != std::string::npos) {
+            return path.substr(0, pos);
+        }
+    }
+
+    if (argv0 != nullptr && argv0[0] != '\0') {
+        std::string path(argv0);
+        const auto pos = path.find_last_of('/');
+        if (pos != std::string::npos) {
+            return path.substr(0, pos);
+        }
+    }
+
+    return ".";
+}
+
+}  // namespace
 
 Config Config::load(const std::string& path) {
     Config config;
@@ -36,6 +65,26 @@ Config Config::load(const std::string& path) {
     }
 
     return config;
+}
+
+std::string Config::resolve_config_path(const char* argv0, const std::string& default_filename,
+                                        const char* override_path) {
+    const std::string base_dir = executable_dir(argv0);
+
+    if (override_path == nullptr || override_path[0] == '\0') {
+        return base_dir + "/config/" + default_filename;
+    }
+
+    std::string path = override_path;
+    if (!path.empty() && path[0] == '/') {
+        return path;
+    }
+
+    if (path.rfind("config/", 0) == 0) {
+        return base_dir + "/" + path;
+    }
+
+    return base_dir + "/config/" + path;
 }
 
 std::string Config::get(const std::string& key, const std::string& default_value) const {
