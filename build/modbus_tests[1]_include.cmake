@@ -1,0 +1,5 @@
+if(EXISTS "/media/serafim/Storage/Projects/Resume/sockets/build/modbus_tests[1]_tests.cmake")
+  include("/media/serafim/Storage/Projects/Resume/sockets/build/modbus_tests[1]_tests.cmake")
+else()
+  add_test(modbus_tests_NOT_BUILT modbus_tests_NOT_BUILT)
+endif()
