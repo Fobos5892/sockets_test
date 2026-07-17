@@ -16,7 +16,10 @@ public:
     void show_user_left(uint32_t id, const std::string& nickname) override;
     void show_users_list(const std::vector<protocol::UserInfo>& users) override;
     void show_error(const std::string& text) override;
+    void show_notice(const std::string& text) override;
     void show_send_failed() override;
     void show_invalid_format() override;
     void show_decode_error(const std::string& text) override;
+    void show_exiting() override;
+    void show_server_disconnected() override;
 };

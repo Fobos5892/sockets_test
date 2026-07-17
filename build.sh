@@ -27,10 +27,12 @@ Targets:
   bench           Build and run modbus_bench (prefer -t Release)
   check           Unit tests under sanitizers, then benchmarks without them
   asan            Alias for tests (kept for compatibility)
-  all             Build server/client/bench + run sanitized tests
+  all             Build server/client/bench for Debug+Release, then run sanitized tests
 
 Options:
   -t, --type TYPE     Build type: Debug (default) or Release (-O3)
+                      For `all`, apps are always built for both Debug and Release;
+                      TYPE only affects the sanitizer test tree name.
   -j, --jobs N        Parallel jobs (default: nproc)
   -c, --clean         Remove relevant build/out dirs before configure
   -s, --sanitize      Force sanitizers on (also for server/client if requested)
@@ -39,6 +41,7 @@ Options:
 
 Examples:
   ./build.sh tests
+  ./build.sh all
   ./build.sh check -t Release
   ./build.sh tests --no-sanitize
   ./build.sh bench -t Release
@@ -123,9 +126,7 @@ want_sanitize_for_apps() {
 }
 
 NORMAL_BUILD_DIR="$ROOT_DIR/build"
-NORMAL_OUT_DIR="$ROOT_DIR/out/$BUILD_TYPE"
 ASAN_BUILD_DIR="$ROOT_DIR/build-asan"
-ASAN_OUT_DIR="$ROOT_DIR/out/${BUILD_TYPE}-asan"
 CONFIG_SRC_DIR="$ROOT_DIR/config"
 
 # Active dirs used by helpers (set by use_normal_tree / use_asan_tree)
@@ -133,13 +134,22 @@ BUILD_DIR=""
 OUT_DIR=""
 ENABLE_SANITIZERS=0
 
+refresh_out_dirs() {
+    NORMAL_OUT_DIR="$ROOT_DIR/out/$BUILD_TYPE"
+    ASAN_OUT_DIR="$ROOT_DIR/out/${BUILD_TYPE}-asan"
+}
+
+refresh_out_dirs
+
 use_normal_tree() {
+    refresh_out_dirs
     BUILD_DIR="$NORMAL_BUILD_DIR"
     OUT_DIR="$NORMAL_OUT_DIR"
     ENABLE_SANITIZERS=0
 }
 
 use_asan_tree() {
+    refresh_out_dirs
     BUILD_DIR="$ASAN_BUILD_DIR"
     OUT_DIR="$ASAN_OUT_DIR"
     ENABLE_SANITIZERS=1
@@ -284,6 +294,16 @@ build_apps_tree() {
     configure_tree
 }
 
+build_apps_for_type() {
+    local type="$1"
+    BUILD_TYPE="$type"
+    build_apps_tree
+    build_one server
+    build_one client
+    build_one modbus_bench
+    sync_config_templates "$OUT_DIR"
+}
+
 case "$TARGET" in
     server)
         build_apps_tree
@@ -336,12 +356,19 @@ case "$TARGET" in
         run_bench
         ;;
     all)
-        build_apps_tree
-        build_one server
-        build_one client
-        build_one modbus_bench
-        sync_config_templates "$OUT_DIR"
+        local_requested_type="$BUILD_TYPE"
+        if [[ "$CLEAN" -eq 1 ]]; then
+            echo "Cleaning build trees and out/{Debug,Release}(+asan)"
+            rm -rf "$NORMAL_BUILD_DIR" "$ASAN_BUILD_DIR" \
+                "$ROOT_DIR/out/Debug" "$ROOT_DIR/out/Release" \
+                "$ROOT_DIR/out/Debug-asan" "$ROOT_DIR/out/Release-asan"
+            CLEAN=0
+        fi
 
+        build_apps_for_type Debug
+        build_apps_for_type Release
+
+        BUILD_TYPE="$local_requested_type"
         build_tests_tree
         RUN_TESTS=1
         run_tests
@@ -350,7 +377,15 @@ case "$TARGET" in
 esac
 
 echo "Done."
-if [[ -n "$OUT_DIR" && -d "$OUT_DIR" ]]; then
+if [[ "$TARGET" == "all" ]]; then
+    echo "Artifacts:"
+    for dir in "$ROOT_DIR/out/Debug" "$ROOT_DIR/out/Release" "$OUT_DIR"; do
+        if [[ -n "$dir" && -d "$dir" ]]; then
+            echo "  $dir/"
+            ls -la "$dir"
+        fi
+    done
+elif [[ -n "$OUT_DIR" && -d "$OUT_DIR" ]]; then
     echo "Artifacts: $OUT_DIR/"
     ls -la "$OUT_DIR"
 fi

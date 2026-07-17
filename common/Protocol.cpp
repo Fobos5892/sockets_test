@@ -6,38 +6,15 @@ namespace protocol {
 
 namespace {
 
-uint32_t read_u32_be(const uint8_t* data) {
-    return (static_cast<uint32_t>(data[0]) << 24) |
-           (static_cast<uint32_t>(data[1]) << 16) |
-           (static_cast<uint32_t>(data[2]) << 8) |
-           static_cast<uint32_t>(data[3]);
-}
-
-void write_u32_be(std::vector<uint8_t>& out, uint32_t value) {
-    out.push_back(static_cast<uint8_t>((value >> 24) & 0xFF));
-    out.push_back(static_cast<uint8_t>((value >> 16) & 0xFF));
-    out.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
-    out.push_back(static_cast<uint8_t>(value & 0xFF));
-}
-
-uint16_t read_u16_be(const uint8_t* data) {
-    return (static_cast<uint16_t>(data[0]) << 8) | data[1];
-}
-
-void write_u16_be(std::vector<uint8_t>& out, uint16_t value) {
-    out.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
-    out.push_back(static_cast<uint8_t>(value & 0xFF));
-}
-
 UserInfo decode_user_info(const uint8_t* data, size_t len, size_t& offset) {
-    if (len < offset + 4) {
+    if (len < offset + kUint32Size) {
         throw std::runtime_error("UserInfo id too short");
     }
     UserInfo info;
     info.id = read_u32_be(data + offset);
-    offset += 4;
+    offset += kUint32Size;
     info.nickname = decode_string(data + offset, len - offset);
-    offset += 2 + info.nickname.size();
+    offset += kUint16Size + info.nickname.size();
     return info;
 }
 
@@ -49,29 +26,66 @@ std::vector<uint8_t> encode_user_info(const UserInfo& info) {
     return out;
 }
 
+ChatPayload decode_chat_payload(const uint8_t* payload, size_t payload_len) {
+    if (payload_len < kChatHeaderSize) {
+        throw std::runtime_error("Chat payload too short");
+    }
+    ChatPayload chat;
+    chat.from_id = read_u32_be(payload);
+    chat.recipient_tag = payload[kUint32Size];
+    size_t offset = kChatHeaderSize;
+
+    if (chat.recipient_tag == kRecipientById) {
+        if (payload_len < offset + kUint32Size) {
+            throw std::runtime_error("Chat id recipient too short");
+        }
+        chat.recipient_data.assign(payload + offset, payload + offset + kUint32Size);
+        offset += kUint32Size;
+    } else if (chat.recipient_tag == kRecipientByNickname) {
+        const std::string nickname = decode_string(payload + offset, payload_len - offset);
+        chat.recipient_data = encode_string(nickname);
+        offset += chat.recipient_data.size();
+    } else if (chat.recipient_tag == kRecipientBroadcast) {
+        // No recipient bytes; body follows immediately.
+    } else {
+        throw std::runtime_error("Unknown recipient tag");
+    }
+
+    chat.text = decode_string(payload + offset, payload_len - offset);
+    return chat;
+}
+
+DeliverPayload decode_deliver_payload(const uint8_t* payload, size_t payload_len) {
+    if (payload_len < kUint32Size) {
+        throw std::runtime_error("Deliver payload too short");
+    }
+    DeliverPayload deliver;
+    deliver.from_id = read_u32_be(payload);
+    deliver.text = decode_string(payload + kUint32Size, payload_len - kUint32Size);
+    return deliver;
+}
+
 }  // namespace
 
 std::vector<uint8_t> encode_string(const std::string& value) {
-    if (value.size() > 0xFFFF) {
+    if (value.size() > kMaxU16Count) {
         throw std::runtime_error("String too long");
     }
     std::vector<uint8_t> out;
-    const uint16_t len = static_cast<uint16_t>(value.size());
-    out.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
-    out.push_back(static_cast<uint8_t>(len & 0xFF));
+    write_u16_be(out, static_cast<uint16_t>(value.size()));
     out.insert(out.end(), value.begin(), value.end());
     return out;
 }
 
 std::string decode_string(const uint8_t* data, size_t len) {
-    if (len < 2) {
+    if (len < kUint16Size) {
         throw std::runtime_error("Invalid string payload");
     }
-    const uint16_t str_len = (static_cast<uint16_t>(data[0]) << 8) | data[1];
-    if (len < 2 + str_len) {
+    const uint16_t str_len = read_u16_be(data);
+    if (len < kUint16Size + str_len) {
         throw std::runtime_error("Truncated string payload");
     }
-    return std::string(reinterpret_cast<const char*>(data + 2), str_len);
+    return std::string(reinterpret_cast<const char*>(data + kUint16Size), str_len);
 }
 
 modbus::Frame make_frame(MsgType type, const std::vector<uint8_t>& payload, uint16_t transaction_id) {
@@ -85,7 +99,7 @@ modbus::Frame make_frame(MsgType type, const std::vector<uint8_t>& payload, uint
 }
 
 AppMessage decode_app_message(const modbus::Frame& frame) {
-    if (frame.pdu.size() < 2) {
+    if (frame.pdu.size() < kPduAppHeaderSize) {
         throw std::runtime_error("PDU too short");
     }
     if (frame.pdu[0] != modbus::kAppFunctionCode) {
@@ -94,8 +108,8 @@ AppMessage decode_app_message(const modbus::Frame& frame) {
 
     AppMessage message;
     message.type = static_cast<MsgType>(frame.pdu[1]);
-    const uint8_t* payload = frame.pdu.data() + 2;
-    const size_t payload_len = frame.pdu.size() - 2;
+    const uint8_t* payload = frame.pdu.data() + kPduAppHeaderSize;
+    const size_t payload_len = frame.pdu.size() - kPduAppHeaderSize;
 
     switch (message.type) {
         case MsgType::Register: {
@@ -105,49 +119,25 @@ AppMessage decode_app_message(const modbus::Frame& frame) {
             break;
         }
         case MsgType::AssignId: {
-            if (payload_len < 4) {
+            if (payload_len < kUint32Size) {
                 throw std::runtime_error("AssignId payload too short");
             }
             AssignIdPayload assign;
             assign.id = read_u32_be(payload);
+            assign.create_room = payload_len > kUint32Size && payload[kUint32Size] != 0;
             message.payload = assign;
             break;
         }
-        case MsgType::Chat: {
-            if (payload_len < 5) {
-                throw std::runtime_error("Chat payload too short");
-            }
-            ChatPayload chat;
-            chat.from_id = read_u32_be(payload);
-            chat.recipient_tag = payload[4];
-            size_t offset = 5;
-
-            if (chat.recipient_tag == 0x01) {
-                if (payload_len < offset + 4) {
-                    throw std::runtime_error("Chat id recipient too short");
-                }
-                chat.recipient_data.assign(payload + offset, payload + offset + 4);
-                offset += 4;
-            } else if (chat.recipient_tag == 0x02) {
-                const std::string nickname = decode_string(payload + offset, payload_len - offset);
-                chat.recipient_data = encode_string(nickname);
-                offset += chat.recipient_data.size();
-            } else {
-                throw std::runtime_error("Unknown recipient tag");
-            }
-
-            chat.text = decode_string(payload + offset, payload_len - offset);
-            message.payload = chat;
+        case MsgType::Chat:
+        case MsgType::KeyOffer:
+        case MsgType::RoomKeyOffer: {
+            message.payload = decode_chat_payload(payload, payload_len);
             break;
         }
-        case MsgType::Deliver: {
-            if (payload_len < 4) {
-                throw std::runtime_error("Deliver payload too short");
-            }
-            DeliverPayload deliver;
-            deliver.from_id = read_u32_be(payload);
-            deliver.text = decode_string(payload + 4, payload_len - 4);
-            message.payload = deliver;
+        case MsgType::Deliver:
+        case MsgType::PeerKey:
+        case MsgType::RoomKey: {
+            message.payload = decode_deliver_payload(payload, payload_len);
             break;
         }
         case MsgType::Error: {
@@ -173,17 +163,35 @@ AppMessage decode_app_message(const modbus::Frame& frame) {
             break;
         }
         case MsgType::UsersList: {
-            if (payload_len < 2) {
+            if (payload_len < kUint16Size) {
                 throw std::runtime_error("UsersList payload too short");
             }
             UsersListPayload list;
             const uint16_t count = read_u16_be(payload);
-            size_t offset = 2;
+            size_t offset = kUint16Size;
             list.users.reserve(count);
             for (uint16_t i = 0; i < count; ++i) {
                 list.users.push_back(decode_user_info(payload, payload_len, offset));
             }
             message.payload = list;
+            break;
+        }
+        case MsgType::BannedIds: {
+            if (payload_len < kUint16Size) {
+                throw std::runtime_error("BannedIds payload too short");
+            }
+            BannedIdsPayload banned;
+            const uint16_t count = read_u16_be(payload);
+            size_t offset = kUint16Size;
+            if (payload_len < offset + static_cast<size_t>(count) * kUint32Size) {
+                throw std::runtime_error("BannedIds payload truncated");
+            }
+            banned.ids.reserve(count);
+            for (uint16_t i = 0; i < count; ++i) {
+                banned.ids.push_back(read_u32_be(payload + offset));
+                offset += kUint32Size;
+            }
+            message.payload = banned;
             break;
         }
         default:
@@ -197,9 +205,9 @@ std::vector<uint8_t> encode_register(const std::string& nickname) {
     return encode_string(nickname);
 }
 
-std::vector<uint8_t> encode_assign_id(uint32_t id) {
-    std::vector<uint8_t> out;
-    write_u32_be(out, id);
+std::vector<uint8_t> encode_assign_id(uint32_t id, bool create_room) {
+    auto out = encode_u32_be(id);
+    out.push_back(create_room ? 1 : 0);
     return out;
 }
 
@@ -238,7 +246,7 @@ std::vector<uint8_t> encode_list_users() {
 }
 
 std::vector<uint8_t> encode_users_list(const std::vector<UserInfo>& users) {
-    if (users.size() > 0xFFFF) {
+    if (users.size() > kMaxU16Count) {
         throw std::runtime_error("Too many users");
     }
     std::vector<uint8_t> out;
@@ -246,6 +254,18 @@ std::vector<uint8_t> encode_users_list(const std::vector<UserInfo>& users) {
     for (const auto& user : users) {
         const auto bytes = encode_user_info(user);
         out.insert(out.end(), bytes.begin(), bytes.end());
+    }
+    return out;
+}
+
+std::vector<uint8_t> encode_banned_ids(const std::vector<uint32_t>& ids) {
+    if (ids.size() > kMaxU16Count) {
+        throw std::runtime_error("Too many banned ids");
+    }
+    std::vector<uint8_t> out;
+    write_u16_be(out, static_cast<uint16_t>(ids.size()));
+    for (const uint32_t id : ids) {
+        write_u32_be(out, id);
     }
     return out;
 }

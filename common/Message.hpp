@@ -14,31 +14,21 @@ struct RecipientTraits;
 
 template <>
 struct RecipientTraits<uint32_t> {
-    static constexpr uint8_t tag = 0x01;
+    static constexpr uint8_t tag = protocol::kRecipientById;
 
-    static std::vector<uint8_t> serialize(uint32_t value) {
-        std::vector<uint8_t> out(4);
-        out[0] = static_cast<uint8_t>((value >> 24) & 0xFF);
-        out[1] = static_cast<uint8_t>((value >> 16) & 0xFF);
-        out[2] = static_cast<uint8_t>((value >> 8) & 0xFF);
-        out[3] = static_cast<uint8_t>(value & 0xFF);
-        return out;
-    }
+    static std::vector<uint8_t> serialize(uint32_t value) { return protocol::encode_u32_be(value); }
 
     static uint32_t deserialize(const uint8_t* data, size_t len) {
-        if (len < 4) {
+        if (len < protocol::kUint32Size) {
             throw std::runtime_error("Invalid id recipient payload");
         }
-        return (static_cast<uint32_t>(data[0]) << 24) |
-               (static_cast<uint32_t>(data[1]) << 16) |
-               (static_cast<uint32_t>(data[2]) << 8) |
-               static_cast<uint32_t>(data[3]);
+        return protocol::read_u32_be(data);
     }
 };
 
 template <>
 struct RecipientTraits<std::string> {
-    static constexpr uint8_t tag = 0x02;
+    static constexpr uint8_t tag = protocol::kRecipientByNickname;
 
     static std::vector<uint8_t> serialize(const std::string& value) {
         return protocol::encode_string(value);
@@ -95,11 +85,11 @@ public:
 
         if constexpr (std::is_same_v<RecipientT, uint32_t>) {
             message.recipient = RecipientTraits<uint32_t>::deserialize(data + offset, len - offset);
-            offset += 4;
+            offset += protocol::kUint32Size;
         } else {
             message.recipient = RecipientTraits<std::string>::deserialize(data + offset, len - offset);
-            const uint16_t str_len = (static_cast<uint16_t>(data[offset]) << 8) | data[offset + 1];
-            offset += 2 + str_len;
+            const uint16_t str_len = protocol::read_u16_be(data + offset);
+            offset += protocol::kUint16Size + str_len;
         }
 
         message.payload = PayloadTraits<PayloadT>::deserialize(data + offset, len - offset);

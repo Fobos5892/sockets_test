@@ -25,3 +25,11 @@ bool Server::is_listening() const {
 uint16_t Server::port() const {
     return view_model_.port();
 }
+
+void Server::submit_admin_line(std::string line) {
+    view_model_.submit_admin_line(std::move(line));
+}
+
+void Server::ban_ids(const std::vector<uint32_t>& ids) {
+    view_model_.ban_ids(ids);
+}

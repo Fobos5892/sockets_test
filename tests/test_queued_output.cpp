@@ -26,9 +26,12 @@ public:
     void show_user_left(uint32_t, const std::string&) override {}
     void show_users_list(const std::vector<protocol::UserInfo>&) override {}
     void show_error(const std::string&) override { ++errors; }
+    void show_notice(const std::string&) override {}
     void show_send_failed() override { ++send_failed; }
     void show_invalid_format() override {}
     void show_decode_error(const std::string&) override {}
+    void show_exiting() override {}
+    void show_server_disconnected() override {}
 
     std::atomic<int> connected{0};
     std::atomic<int> delivered{0};

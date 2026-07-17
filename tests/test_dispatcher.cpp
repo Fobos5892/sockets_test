@@ -53,6 +53,41 @@ TEST(DispatcherTest, ChatDeliversToRecipient) {
     EXPECT_EQ(payload.text, "hello");
 }
 
+TEST(DispatcherTest, ChatBroadcastDeliversToAllPeers) {
+    DispatcherFixture fx;
+    fx.registry.add(1, 10);
+    fx.registry.add(2, 20);
+    fx.registry.add(3, 30);
+
+    const auto chat = testing_fixtures::make_chat_broadcast(10, "ping");
+    fx.dispatcher->dispatch(1, testing_fixtures::make_chat_message(chat), fx.context);
+
+    EXPECT_FALSE(fx.transport.receive(1).has_value());
+
+    const auto to2 = fx.transport.receive(2);
+    ASSERT_TRUE(to2.has_value());
+    ASSERT_EQ(to2->type, protocol::MsgType::Deliver);
+    EXPECT_EQ(std::get<protocol::DeliverPayload>(to2->payload).text, "ping");
+
+    const auto to3 = fx.transport.receive(3);
+    ASSERT_TRUE(to3.has_value());
+    ASSERT_EQ(to3->type, protocol::MsgType::Deliver);
+    EXPECT_EQ(std::get<protocol::DeliverPayload>(to3->payload).from_id, 10U);
+}
+
+TEST(DispatcherTest, RegisterRejectsReservedNicknameAll) {
+    DispatcherFixture fx;
+    fx.registry.add(1, 10);
+
+    fx.dispatcher->dispatch(1, testing_fixtures::make_register_message(protocol::kBroadcastRecipient),
+                            fx.context);
+
+    const auto error = fx.transport.receive(1);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_EQ(error->type, protocol::MsgType::Error);
+    EXPECT_EQ(std::get<protocol::ErrorPayload>(error->payload).text, "Nickname 'all' is reserved");
+}
+
 TEST(DispatcherTest, ChatUnknownRecipientReturnsError) {
     DispatcherFixture fx;
     fx.registry.add(1, 10);

@@ -11,7 +11,8 @@ void expect_roundtrip(const protocol::AppMessage& original) {
             payload = protocol::encode_register(std::get<protocol::RegisterPayload>(original.payload).nickname);
             break;
         case protocol::MsgType::AssignId:
-            payload = protocol::encode_assign_id(std::get<protocol::AssignIdPayload>(original.payload).id);
+            payload = protocol::encode_assign_id(std::get<protocol::AssignIdPayload>(original.payload).id,
+                                                 std::get<protocol::AssignIdPayload>(original.payload).create_room);
             break;
         case protocol::MsgType::Chat:
             payload = protocol::encode_chat(std::get<protocol::ChatPayload>(original.payload));
@@ -39,6 +40,18 @@ void expect_roundtrip(const protocol::AppMessage& original) {
         case protocol::MsgType::UsersList:
             payload = protocol::encode_users_list(std::get<protocol::UsersListPayload>(original.payload).users);
             break;
+        case protocol::MsgType::BannedIds:
+            payload = protocol::encode_banned_ids(std::get<protocol::BannedIdsPayload>(original.payload).ids);
+            break;
+        case protocol::MsgType::KeyOffer:
+        case protocol::MsgType::RoomKeyOffer:
+            payload = protocol::encode_chat(std::get<protocol::ChatPayload>(original.payload));
+            break;
+        case protocol::MsgType::PeerKey:
+        case protocol::MsgType::RoomKey:
+            payload = protocol::encode_deliver(std::get<protocol::DeliverPayload>(original.payload).from_id,
+                                               std::get<protocol::DeliverPayload>(original.payload).text);
+            break;
     }
 
     const modbus::Frame frame = protocol::make_frame(original.type, payload, 99);
@@ -56,6 +69,7 @@ void expect_roundtrip(const protocol::AppMessage& original) {
             const auto& expected = std::get<protocol::AssignIdPayload>(original.payload);
             const auto& actual = std::get<protocol::AssignIdPayload>(decoded.payload);
             EXPECT_EQ(actual.id, expected.id);
+            EXPECT_EQ(actual.create_room, expected.create_room);
             break;
         }
         case protocol::MsgType::Chat: {
@@ -107,6 +121,30 @@ void expect_roundtrip(const protocol::AppMessage& original) {
             }
             break;
         }
+        case protocol::MsgType::BannedIds: {
+            const auto& expected = std::get<protocol::BannedIdsPayload>(original.payload);
+            const auto& actual = std::get<protocol::BannedIdsPayload>(decoded.payload);
+            EXPECT_EQ(actual.ids, expected.ids);
+            break;
+        }
+        case protocol::MsgType::KeyOffer:
+        case protocol::MsgType::RoomKeyOffer: {
+            const auto& expected = std::get<protocol::ChatPayload>(original.payload);
+            const auto& actual = std::get<protocol::ChatPayload>(decoded.payload);
+            EXPECT_EQ(actual.from_id, expected.from_id);
+            EXPECT_EQ(actual.recipient_tag, expected.recipient_tag);
+            EXPECT_EQ(actual.recipient_data, expected.recipient_data);
+            EXPECT_EQ(actual.text, expected.text);
+            break;
+        }
+        case protocol::MsgType::PeerKey:
+        case protocol::MsgType::RoomKey: {
+            const auto& expected = std::get<protocol::DeliverPayload>(original.payload);
+            const auto& actual = std::get<protocol::DeliverPayload>(decoded.payload);
+            EXPECT_EQ(actual.from_id, expected.from_id);
+            EXPECT_EQ(actual.text, expected.text);
+            break;
+        }
     }
 }
 
@@ -122,7 +160,37 @@ TEST(ProtocolTest, RegisterRoundTrip) {
 TEST(ProtocolTest, AssignIdRoundTrip) {
     protocol::AppMessage message;
     message.type = protocol::MsgType::AssignId;
-    message.payload = protocol::AssignIdPayload{3};
+    message.payload = protocol::AssignIdPayload{3, true};
+    expect_roundtrip(message);
+}
+
+TEST(ProtocolTest, AssignIdCreateRoomFalse) {
+    protocol::AppMessage message;
+    message.type = protocol::MsgType::AssignId;
+    message.payload = protocol::AssignIdPayload{7, false};
+    expect_roundtrip(message);
+}
+
+TEST(ProtocolTest, BannedIdsRoundTrip) {
+    protocol::AppMessage message;
+    message.type = protocol::MsgType::BannedIds;
+    message.payload = protocol::BannedIdsPayload{{1, 2, 9}};
+    expect_roundtrip(message);
+}
+
+TEST(ProtocolTest, KeyOfferRoundTrip) {
+    protocol::AppMessage message;
+    message.type = protocol::MsgType::KeyOffer;
+    message.payload = protocol::ChatPayload{
+        1, protocol::kRecipientById, protocol::encode_u32_be(2), std::string(32, 'K'),
+    };
+    expect_roundtrip(message);
+}
+
+TEST(ProtocolTest, PeerKeyRoundTrip) {
+    protocol::AppMessage message;
+    message.type = protocol::MsgType::PeerKey;
+    message.payload = protocol::DeliverPayload{1, std::string(32, 'P')};
     expect_roundtrip(message);
 }
 
@@ -130,7 +198,7 @@ TEST(ProtocolTest, ChatByIdRoundTrip) {
     protocol::AppMessage message;
     message.type = protocol::MsgType::Chat;
     message.payload = protocol::ChatPayload{
-        1, 0x01, {0, 0, 0, 2}, "hello",
+        1, protocol::kRecipientById, protocol::encode_u32_be(2), "hello",
     };
     expect_roundtrip(message);
 }
@@ -139,7 +207,16 @@ TEST(ProtocolTest, ChatByNicknameRoundTrip) {
     protocol::AppMessage message;
     message.type = protocol::MsgType::Chat;
     message.payload = protocol::ChatPayload{
-        1, 0x02, protocol::encode_string("bob"), "hello",
+        1, protocol::kRecipientByNickname, protocol::encode_string("bob"), "hello",
+    };
+    expect_roundtrip(message);
+}
+
+TEST(ProtocolTest, ChatBroadcastRoundTrip) {
+    protocol::AppMessage message;
+    message.type = protocol::MsgType::Chat;
+    message.payload = protocol::ChatPayload{
+        1, protocol::kRecipientBroadcast, {}, "hello all",
     };
     expect_roundtrip(message);
 }
@@ -190,6 +267,7 @@ TEST(ProtocolTest, UsersListRoundTrip) {
 
 TEST(ProtocolTest, RejectsUnexpectedFunctionCode) {
     modbus::Frame frame;
-    frame.pdu = {0x03, static_cast<uint8_t>(protocol::MsgType::Register)};
+    constexpr uint8_t kWrongFunctionCode = 0x03;  // not modbus::kAppFunctionCode
+    frame.pdu = {kWrongFunctionCode, static_cast<uint8_t>(protocol::MsgType::Register)};
     EXPECT_THROW(protocol::decode_app_message(frame), std::runtime_error);
 }

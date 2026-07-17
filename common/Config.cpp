@@ -9,6 +9,8 @@
 
 namespace {
 
+constexpr int kProgressComplete = 100;
+
 std::string executable_dir(const char* argv0) {
     char buf[PATH_MAX];
     const ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
@@ -30,6 +32,12 @@ std::string executable_dir(const char* argv0) {
     }
 
     return ".";
+}
+
+bool has_conf_suffix(const std::string& path) {
+    const std::string suffix = config_defaults::kConfSuffix;
+    return path.size() >= suffix.size() &&
+           path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 }  // namespace
@@ -54,10 +62,10 @@ Config Config::load(const std::string& path, const ProgressCallback& progress) {
     while (std::getline(file, line)) {
         consumed += static_cast<std::streamoff>(line.size() + 1);
         if (progress && size > 0) {
-            const int percent = static_cast<int>((consumed * 100) / size);
+            const int percent = static_cast<int>((consumed * kProgressComplete) / size);
             if (percent != last_percent) {
                 last_percent = percent;
-                progress(std::min(percent, 100), "Reading config");
+                progress(std::min(percent, kProgressComplete), "Reading config");
             }
         }
 
@@ -84,7 +92,7 @@ Config Config::load(const std::string& path, const ProgressCallback& progress) {
     }
 
     if (progress) {
-        progress(100, "Config loaded");
+        progress(kProgressComplete, "Config loaded");
     }
     return config;
 }
@@ -100,6 +108,10 @@ std::string Config::resolve_config_path(const char* argv0, const std::string& de
     std::string path = override_path;
     if (!path.empty() && path[0] == '/') {
         return path;
+    }
+
+    if (!has_conf_suffix(path)) {
+        path += config_defaults::kConfSuffix;
     }
 
     if (path.rfind("config/", 0) == 0) {
@@ -120,16 +132,22 @@ std::string Config::get(const std::string& key, const std::string& default_value
 ServerConfig ServerConfig::from_file(const std::string& path, const Config::ProgressCallback& progress) {
     const Config config = Config::load(path, progress);
     ServerConfig server;
-    server.bind_ip = config.get("bind_ip", "0.0.0.0");
-    server.port = static_cast<uint16_t>(std::stoi(config.get("port", "5020")));
+    server.bind_ip = config.get("bind_ip", config_defaults::kDefaultBindIp);
+    server.port = static_cast<uint16_t>(
+        std::stoi(config.get("port", std::to_string(config_defaults::kDefaultPort))));
     return server;
 }
 
 ClientConfig ClientConfig::from_file(const std::string& path, const Config::ProgressCallback& progress) {
     const Config config = Config::load(path, progress);
     ClientConfig client;
-    client.server_ip = config.get("server_ip", "127.0.0.1");
-    client.port = static_cast<uint16_t>(std::stoi(config.get("port", "5020")));
+    client.server_ip = config.get("server_ip", config_defaults::kDefaultServerIp);
+    client.port = static_cast<uint16_t>(
+        std::stoi(config.get("port", std::to_string(config_defaults::kDefaultPort))));
     client.nickname = config.get("nickname", "");
+    client.keystore_path = config.get("keystore_path", "");
+    client.keystore_password =
+        config.get("keystore_password", config_defaults::kDefaultKeystorePassword);
+    client.log_path = config.get("log_path", "");
     return client;
 }

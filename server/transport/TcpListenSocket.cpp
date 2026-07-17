@@ -9,6 +9,13 @@
 #include <cstring>
 #include <stdexcept>
 
+namespace {
+
+constexpr int kListenBacklog = 16;
+constexpr int kReuseAddrEnabled = 1;
+
+}  // namespace
+
 TcpListenSocket::TcpListenSocket(ServerConfig config) : config_(std::move(config)) {}
 
 void TcpListenSocket::open() {
@@ -17,7 +24,7 @@ void TcpListenSocket::open() {
         throw std::runtime_error("Failed to create listen socket");
     }
 
-    int opt = 1;
+    int opt = kReuseAddrEnabled;
     if (setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         throw std::runtime_error("setsockopt failed");
     }
@@ -33,7 +40,7 @@ void TcpListenSocket::open() {
         throw std::runtime_error("bind failed: " + std::string(std::strerror(errno)));
     }
 
-    if (listen(listen_fd_, 16) < 0) {
+    if (listen(listen_fd_, kListenBacklog) < 0) {
         throw std::runtime_error("listen failed");
     }
 

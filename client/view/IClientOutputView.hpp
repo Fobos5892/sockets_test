@@ -21,7 +21,10 @@ public:
     virtual void show_user_left(uint32_t id, const std::string& nickname) = 0;
     virtual void show_users_list(const std::vector<protocol::UserInfo>& users) = 0;
     virtual void show_error(const std::string& text) = 0;
+    virtual void show_notice(const std::string& text) = 0;
     virtual void show_send_failed() = 0;
     virtual void show_invalid_format() = 0;
     virtual void show_decode_error(const std::string& text) = 0;
+    virtual void show_exiting() = 0;
+    virtual void show_server_disconnected() = 0;
 };

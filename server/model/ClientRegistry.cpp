@@ -85,21 +85,18 @@ std::vector<protocol::UserInfo> ClientRegistry::collect_users() const {
 }
 
 std::optional<uint32_t> ClientRegistry::resolve_recipient(const protocol::ChatPayload& chat) const {
-    if (chat.recipient_tag == 0x01) {
-        if (chat.recipient_data.size() < 4) {
+    if (chat.recipient_tag == protocol::kRecipientById) {
+        if (chat.recipient_data.size() < protocol::kUint32Size) {
             return std::nullopt;
         }
-        const uint32_t id = (static_cast<uint32_t>(chat.recipient_data[0]) << 24) |
-                            (static_cast<uint32_t>(chat.recipient_data[1]) << 16) |
-                            (static_cast<uint32_t>(chat.recipient_data[2]) << 8) |
-                            static_cast<uint32_t>(chat.recipient_data[3]);
+        const uint32_t id = protocol::read_u32_be(chat.recipient_data.data());
         if (!fd_by_id(id)) {
             return std::nullopt;
         }
         return id;
     }
 
-    if (chat.recipient_tag == 0x02) {
+    if (chat.recipient_tag == protocol::kRecipientByNickname) {
         const std::string nickname =
             protocol::decode_string(chat.recipient_data.data(), chat.recipient_data.size());
         return id_by_nickname(nickname);
@@ -109,15 +106,16 @@ std::optional<uint32_t> ClientRegistry::resolve_recipient(const protocol::ChatPa
 }
 
 std::string ClientRegistry::recipient_label(const protocol::ChatPayload& chat) const {
-    if (chat.recipient_tag == 0x01 && chat.recipient_data.size() >= 4) {
-        const uint32_t id = (static_cast<uint32_t>(chat.recipient_data[0]) << 24) |
-                            (static_cast<uint32_t>(chat.recipient_data[1]) << 16) |
-                            (static_cast<uint32_t>(chat.recipient_data[2]) << 8) |
-                            static_cast<uint32_t>(chat.recipient_data[3]);
-        return std::to_string(id);
+    if (chat.recipient_tag == protocol::kRecipientBroadcast) {
+        return protocol::kBroadcastRecipient;
     }
 
-    if (chat.recipient_tag == 0x02) {
+    if (chat.recipient_tag == protocol::kRecipientById &&
+        chat.recipient_data.size() >= protocol::kUint32Size) {
+        return std::to_string(protocol::read_u32_be(chat.recipient_data.data()));
+    }
+
+    if (chat.recipient_tag == protocol::kRecipientByNickname) {
         return protocol::decode_string(chat.recipient_data.data(), chat.recipient_data.size());
     }
 

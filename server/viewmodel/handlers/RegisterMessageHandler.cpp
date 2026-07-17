@@ -18,6 +18,12 @@ void RegisterMessageHandler::handle(int fd, const protocol::AppMessage& message,
         return;
     }
 
+    if (nickname == protocol::kBroadcastRecipient) {
+        context.transport.send(fd, protocol::MsgType::Error,
+                               protocol::encode_error("Nickname 'all' is reserved"));
+        return;
+    }
+
     if (context.registry.nickname_taken_by_other(nickname, record->id)) {
         context.transport.send(fd, protocol::MsgType::Error, protocol::encode_error("Nickname already taken"));
         return;

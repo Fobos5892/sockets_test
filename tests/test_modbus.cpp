@@ -1,4 +1,5 @@
 #include "ModbusTcp.hpp"
+#include "Protocol.hpp"
 
 #include <gtest/gtest.h>
 
@@ -9,7 +10,8 @@ TEST(ModbusTcpTest, EncodeDecodeRoundTrip) {
     modbus::Frame original;
     original.transaction_id = 42;
     original.unit_id = 1;
-    original.pdu = {modbus::kAppFunctionCode, 0x03, 0x00, 0x01, 0x02};
+    original.pdu = {modbus::kAppFunctionCode, static_cast<uint8_t>(protocol::MsgType::Chat), 0x00, 0x01,
+                    0x02};
 
     const auto encoded = modbus::ModbusTcp::encode(original);
     size_t consumed = 0;
@@ -24,7 +26,7 @@ TEST(ModbusTcpTest, EncodeDecodeRoundTrip) {
 
 TEST(ModbusTcpTest, DecodeReturnsNulloptForIncompleteBuffer) {
     modbus::Frame frame;
-    frame.pdu = {0x41, 0x01};
+    frame.pdu = {modbus::kAppFunctionCode, static_cast<uint8_t>(protocol::MsgType::Register)};
     const auto encoded = modbus::ModbusTcp::encode(frame);
 
     std::vector<uint8_t> partial(encoded.begin(), encoded.end() - 1);
@@ -39,7 +41,8 @@ TEST(ModbusTcpTest, ReadWriteFrameOverSocketPair) {
     modbus::Frame sent;
     sent.transaction_id = 7;
     sent.unit_id = 0;
-    sent.pdu = {modbus::kAppFunctionCode, 0x02, 0x00, 0x00, 0x00, 0x01};
+    sent.pdu = {modbus::kAppFunctionCode, static_cast<uint8_t>(protocol::MsgType::AssignId), 0x00, 0x00,
+                0x00, 0x01};
 
     ASSERT_TRUE(modbus::ModbusTcp::write_frame(fds[0], sent));
 

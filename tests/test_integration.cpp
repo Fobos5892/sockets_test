@@ -71,6 +71,63 @@ TEST_F(ServerFixture, AssignsIncrementalIds) {
     test_utils::close_fd(client2);
 }
 
+TEST_F(ServerFixture, ReusesFreedIds) {
+    const int client1 = connect_client();
+    const int client2 = connect_client();
+    EXPECT_EQ(read_assigned_id(client1), 1U);
+    EXPECT_EQ(read_assigned_id(client2), 2U);
+
+    // client2 sees UserJoined for client1's empty-nick connect already drained? client1 connected first.
+    // Drain UserJoined that client1 received when client2 connected.
+    protocol::AppMessage ignored;
+    test_utils::read_app_message(client1, ignored);
+
+    test_utils::close_fd(client1);
+
+    protocol::AppMessage left;
+    test_utils::read_app_message(client2, left);
+    ASSERT_EQ(left.type, protocol::MsgType::UserLeft);
+    EXPECT_EQ(std::get<protocol::UserLeftPayload>(left.payload).id, 1U);
+
+    const int client3 = connect_client();
+    EXPECT_EQ(read_assigned_id(client3), 1U);
+
+    test_utils::close_fd(client2);
+    test_utils::close_fd(client3);
+}
+
+TEST_F(ServerFixture, BroadcastsChatToAllPeers) {
+    const int sender = connect_client();
+    const int peer_a = connect_client();
+    const int peer_b = connect_client();
+    const uint32_t sender_id = read_assigned_id(sender);
+    read_assigned_id(peer_a);
+    read_assigned_id(peer_b);
+
+    // Drain presence noise on peers (joins from later connects).
+    protocol::AppMessage ignored;
+    test_utils::read_app_message(sender, ignored);   // peer_a joined
+    test_utils::read_app_message(sender, ignored);   // peer_b joined
+    test_utils::read_app_message(peer_a, ignored);   // peer_b joined
+
+    const auto chat = test_utils::make_chat_broadcast(sender_id, "hello all");
+    test_utils::write_app_message(sender, protocol::MsgType::Chat, protocol::encode_chat(chat));
+
+    protocol::AppMessage delivered_a;
+    test_utils::read_app_message(peer_a, delivered_a);
+    ASSERT_EQ(delivered_a.type, protocol::MsgType::Deliver);
+    EXPECT_EQ(std::get<protocol::DeliverPayload>(delivered_a.payload).text, "hello all");
+
+    protocol::AppMessage delivered_b;
+    test_utils::read_app_message(peer_b, delivered_b);
+    ASSERT_EQ(delivered_b.type, protocol::MsgType::Deliver);
+    EXPECT_EQ(std::get<protocol::DeliverPayload>(delivered_b.payload).from_id, sender_id);
+
+    test_utils::close_fd(sender);
+    test_utils::close_fd(peer_a);
+    test_utils::close_fd(peer_b);
+}
+
 TEST_F(ServerFixture, DeliversChatByRecipientId) {
     const int sender_fd = connect_client();
     const int receiver_fd = connect_client();

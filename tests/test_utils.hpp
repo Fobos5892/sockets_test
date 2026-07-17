@@ -71,13 +71,8 @@ inline void write_app_message(int fd, protocol::MsgType type, const std::vector<
 inline protocol::ChatPayload make_chat_by_id(uint32_t from_id, uint32_t recipient_id, const std::string& text) {
     protocol::ChatPayload chat;
     chat.from_id = from_id;
-    chat.recipient_tag = 0x01;
-    chat.recipient_data = {
-        static_cast<uint8_t>((recipient_id >> 24) & 0xFF),
-        static_cast<uint8_t>((recipient_id >> 16) & 0xFF),
-        static_cast<uint8_t>((recipient_id >> 8) & 0xFF),
-        static_cast<uint8_t>(recipient_id & 0xFF),
-    };
+    chat.recipient_tag = protocol::kRecipientById;
+    chat.recipient_data = protocol::encode_u32_be(recipient_id);
     chat.text = text;
     return chat;
 }
@@ -86,8 +81,16 @@ inline protocol::ChatPayload make_chat_by_nickname(uint32_t from_id, const std::
                                                    const std::string& text) {
     protocol::ChatPayload chat;
     chat.from_id = from_id;
-    chat.recipient_tag = 0x02;
+    chat.recipient_tag = protocol::kRecipientByNickname;
     chat.recipient_data = protocol::encode_string(nickname);
+    chat.text = text;
+    return chat;
+}
+
+inline protocol::ChatPayload make_chat_broadcast(uint32_t from_id, const std::string& text) {
+    protocol::ChatPayload chat;
+    chat.from_id = from_id;
+    chat.recipient_tag = protocol::kRecipientBroadcast;
     chat.text = text;
     return chat;
 }

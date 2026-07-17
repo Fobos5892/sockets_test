@@ -94,6 +94,16 @@ private:
     std::string text_;
 };
 
+class ShowNoticeCommand final : public IClientOutputCommand {
+public:
+    explicit ShowNoticeCommand(std::string text) : text_(std::move(text)) {}
+
+    void execute(IClientOutputView& view) override { view.show_notice(text_); }
+
+private:
+    std::string text_;
+};
+
 class ShowSendFailedCommand final : public IClientOutputCommand {
 public:
     void execute(IClientOutputView& view) override { view.show_send_failed(); }
@@ -133,6 +143,16 @@ public:
 class ShowInputPromptCommand final : public IClientOutputCommand {
 public:
     void execute(IClientOutputView& view) override { view.show_input_prompt(); }
+};
+
+class ShowExitingCommand final : public IClientOutputCommand {
+public:
+    void execute(IClientOutputView& view) override { view.show_exiting(); }
+};
+
+class ShowServerDisconnectedCommand final : public IClientOutputCommand {
+public:
+    void execute(IClientOutputView& view) override { view.show_server_disconnected(); }
 };
 
 }  // namespace client_view

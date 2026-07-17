@@ -54,6 +54,10 @@ void QueuedClientOutputView::show_error(const std::string& text) {
     post(std::make_unique<client_view::ShowErrorCommand>(text));
 }
 
+void QueuedClientOutputView::show_notice(const std::string& text) {
+    post(std::make_unique<client_view::ShowNoticeCommand>(text));
+}
+
 void QueuedClientOutputView::show_send_failed() {
     post(std::make_unique<client_view::ShowSendFailedCommand>());
 }
@@ -64,4 +68,12 @@ void QueuedClientOutputView::show_invalid_format() {
 
 void QueuedClientOutputView::show_decode_error(const std::string& text) {
     post(std::make_unique<client_view::ShowDecodeErrorCommand>(text));
+}
+
+void QueuedClientOutputView::show_exiting() {
+    post(std::make_unique<client_view::ShowExitingCommand>());
+}
+
+void QueuedClientOutputView::show_server_disconnected() {
+    post(std::make_unique<client_view::ShowServerDisconnectedCommand>());
 }

@@ -9,11 +9,13 @@ C++ клиент и сервер для Linux с протоколом Modbus TCP
 ```bash
 ./build.sh server
 ./build.sh client
-./build.sh all -t Release
+./build.sh all
 ./build.sh tests --clean
 ```
 
 Параметры: `server|client|tests|modbus_tests|modbus_bench|bench|check|asan|all`, `-t Debug|Release` (`Release` = `-O3 -DNDEBUG`), `--no-sanitize`, `-c/--clean`, `-j N`.
+
+`all` собирает `server`/`client`/`modbus_bench` и в **Debug**, и в **Release**, затем гоняет sanitized-тесты.
 
 Unit-тесты по умолчанию идут под **ASan/UBSan/LSan**. Отключить: `--no-sanitize`.
 
@@ -43,8 +45,10 @@ cmake --build build --target client
 ```bash
 ./out/Debug/server
 ./out/Debug/client
-./out/Debug/client client2.conf
+./out/Debug/client client2
 ```
+
+Из `out/Release` то же самое: `./server`, `./client`, `./client client2`.
 
 Бинарники автоматически читают конфиги из подкаталога `config/` рядом с собой.
 После сборки шаблоны копируются в `out/<Debug|Release>/config/`:
@@ -53,7 +57,7 @@ cmake --build build --target client
 - `client.conf` — настройки клиента (`server_ip`, `port`, `nickname`)
 - `client2.conf` — второй клиент с другим `nickname`
 
-Изменяйте эти файлы перед запуском. Путь к конфигу можно передать аргументом (`client2.conf` или `config/client2.conf`).
+Изменяйте эти файлы перед запуском. Аргумент — короткое имя конфига: `client2` (к нему добавится `.conf`). По-прежнему работают `client2.conf`, `config/client2` и абсолютный путь.
 
 ## Формат сообщений
 
@@ -62,22 +66,51 @@ cmake --build build --target client
 ```
 2:hello
 bob:hello
+all:hello
 /users
+/exit
 ```
 
 - `2:hello` — отправить клиенту с id `2`
 - `bob:hello` — отправить клиенту с nickname `bob`
+- `all:hello` — отправить всем подключённым клиентам (кроме себя); nickname `all` зарезервирован
 - `/users` — запросить у сервера список подключённых клиентов
+- `/key 2` — отправить свой публичный ключ клиенту с id `2` (обычно уходит автоматически при join)
+- `/exit` (или `exit`) — выйти из клиента; при любом закрытии (команда, Ctrl+C, закрытие консоли) соединение закрывается и остальные получают `[presence] User left`
+- при остановке сервера (Ctrl+C / закрытие) все клиенты получают обрыв соединения и сами завершаются
+
+### E2E шифрование
+
+Сообщения между клиентами шифруются end-to-end (X25519 + XChaCha20-Poly1305 через [Monocypher](https://monocypher.org/), vendored в `common/crypto/third_party/`). Сервер — blind relay: в лог пишется только `Chat from id=… to …` без тела.
+
+- **Identity keypair** — у каждого клиента; peer-ключи через `KeyOffer` / `PeerKey`
+- **Room key** — создаёт первый клиент в комнате (`AssignId.create_room`); дальше gossip через `RoomKeyOffer` только к пирам с известным pubkey
+- **Local keystore** — при выходе шифруется на диске (`<nickname>.keys` или `keystore_path` / `keystore_password` в client.conf)
+- **Client log** — подробности в файл (`<nickname>.log` или `log_path` в client.conf); на экран — краткие ошибки/notice
+- **Broadcast `all:`** — симметрично room key
+
+Threat model (resume demo): сервер и сеть не видят plaintext; скомпрометированный клиент и утечка пароля keystore — вне модели.
+
+### Ban (консоль сервера)
+
+На stdin сервера только admin-команды:
+
+```
+ban:1,2,3
+```
+
+Забаненные id не шлют и не получают сообщения, сокет disconnect, id не переиспользуется до рестарта сервера. Остальным клиентам уходит `BannedIds` — они забывают pubkey этих id.
+
+Освободившиеся id после disconnect переиспользуются (берётся наименьший свободный), кроме забаненных.
 
 При подключении и отключении клиентов все остальные получают уведомления `[presence]`. После регистрации nickname другим клиентам приходит обновление с именем.
-
-Сервер логирует все сообщения. Клиент получает только сообщения, адресованные ему.
 
 ## Архитектура (MVVM + SOLID)
 
 ```
 common/
   Config, Protocol, ModbusTcp, Message
+  crypto/IMessageCipher, MonocypherMessageCipher, PeerKeyStore, EncryptedKeyStoreFile
   transport/IMessageTransport, ModbusMessageTransport   — DIP: абстракция транспорта
   concurrency/ICommand, QueuedCommandExecutor           — общая Command-очередь
 
@@ -86,7 +119,8 @@ server/
   transport/IListenSocket, TcpListenSocket              — SRP: listen/accept
   view/IServerView, ServerLogView                       — SRP: только вывод
   viewmodel/
-    ServerViewModel                                     — оркестрация event-loop
+    ServerViewModel                                     — оркестрация event-loop + ban-list
+    AdminCommandParser                                  — admin console (`ban:`)
     MessageDispatcher + IMessageHandler                 — OCP: новый тип = новый handler
     PresenceBroadcaster                                 — SRP: broadcast presence
   Server.* + main.cpp                                   — composition root (DIP)
@@ -121,7 +155,8 @@ client/
 MBAP header + PDU:
 
 - FC: `0x41`
-- Типы: Register, AssignId, Chat, Deliver, Error, UserJoined, UserLeft, ListUsers, UsersList
+- Типы: Register, AssignId (`create_room`), Chat, Deliver, Error, UserJoined, UserLeft, ListUsers, UsersList, KeyOffer, RoomKeyOffer, BannedIds, PeerKey, RoomKey
+- Chat/Deliver body — opaque (ciphertext для E2E)
 
 ## Тесты
 
@@ -139,8 +174,8 @@ MBAP header + PDU:
 - `ModbusTcp` — encode/decode и socketpair read/write
 - `Protocol` — round-trip всех типов сообщений
 - `Message` — шаблонный serialize/deserialize и парсинг `recipient:text`
-- Client — `parse_input_line`, `OutgoingMessageBuilder`, `IncomingMessagePresenter`
-- Server — `ClientRegistry`, `MessageDispatcher` через `MemoryMessageTransport` (без TCP)
+- Client — `parse_input_line`, `OutgoingMessageBuilder`, `IncomingMessagePresenter`, crypto/keystore
+- Server — `ClientRegistry`, `MessageDispatcher`, `AdminCommandParser`
 - Integration — assign id, доставка по id/nickname, ошибки, presence, список пользователей (реальный TCP)
 
 Общие моки: [`testing/MemoryMessageTransport.hpp`](testing/MemoryMessageTransport.hpp), [`testing/NullViews.hpp`](testing/NullViews.hpp).

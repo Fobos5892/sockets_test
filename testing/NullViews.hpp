@@ -17,6 +17,7 @@ public:
     void show_client_registered(uint32_t, const std::string&) override {}
     void show_chat(uint32_t, const std::string&, const std::string&) override {}
     void show_decode_error(const std::string&) override {}
+    void show_admin_message(const std::string&) override {}
 };
 
 class RecordingClientOutputView final : public IClientOutputView {
@@ -56,9 +57,16 @@ public:
         ++error_count;
     }
 
+    void show_notice(const std::string& text) override {
+        last_notice = text;
+        ++notice_count;
+    }
+
     void show_send_failed() override {}
     void show_invalid_format() override {}
     void show_decode_error(const std::string&) override {}
+    void show_exiting() override {}
+    void show_server_disconnected() override {}
 
     uint32_t last_deliver_from{0};
     std::string last_deliver_text;
@@ -77,6 +85,9 @@ public:
 
     std::string last_error;
     int error_count{0};
+
+    std::string last_notice;
+    int notice_count{0};
 };
 
 class NullClientOutputView final : public IClientOutputView {
@@ -92,7 +103,10 @@ public:
     void show_user_left(uint32_t, const std::string&) override {}
     void show_users_list(const std::vector<protocol::UserInfo>&) override {}
     void show_error(const std::string&) override {}
+    void show_notice(const std::string&) override {}
     void show_send_failed() override {}
     void show_invalid_format() override {}
     void show_decode_error(const std::string&) override {}
+    void show_exiting() override {}
+    void show_server_disconnected() override {}
 };

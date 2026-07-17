@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(modbus_chat LANGUAGES CXX)
+project(modbus_chat LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,11 +47,18 @@ add_library(common STATIC
     common/ModbusTcp.cpp
     common/Protocol.cpp
     common/transport/ModbusMessageTransport.cpp
+    common/crypto/MonocypherMessageCipher.cpp
+    common/crypto/PeerKeyStore.cpp
+    common/crypto/EncryptedKeyStoreFile.cpp
+    common/crypto/third_party/monocypher.c
+    common/logging/FileLogger.cpp
 )
 
 target_include_directories(common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
+
+set_source_files_properties(common/crypto/third_party/monocypher.c PROPERTIES LANGUAGE C)
 
 find_package(Threads REQUIRED)
 target_link_libraries(common PUBLIC Threads::Threads)
@@ -61,12 +68,14 @@ add_library(server_lib STATIC
     server/model/ClientRegistry.cpp
     server/transport/TcpListenSocket.cpp
     server/view/ServerLogView.cpp
+    server/viewmodel/AdminCommandParser.cpp
     server/viewmodel/MessageDispatcher.cpp
     server/viewmodel/MessageDispatcherFactory.cpp
     server/viewmodel/PresenceBroadcaster.cpp
     server/viewmodel/ServerViewModel.cpp
     server/viewmodel/handlers/RegisterMessageHandler.cpp
     server/viewmodel/handlers/ChatMessageHandler.cpp
+    server/viewmodel/handlers/OpaqueUnicastHandler.cpp
     server/viewmodel/handlers/ListUsersMessageHandler.cpp
 )
 
@@ -126,6 +135,7 @@ enable_testing()
 
 add_executable(modbus_tests
     tests/test_config.cpp
+    tests/test_defaults.cpp
     tests/test_modbus.cpp
     tests/test_protocol.cpp
     tests/test_message.cpp
@@ -136,6 +146,9 @@ add_executable(modbus_tests
     tests/test_queued_output.cpp
     tests/test_registry.cpp
     tests/test_dispatcher.cpp
+    tests/test_crypto.cpp
+    tests/test_admin.cpp
+    tests/test_file_logger.cpp
 )
 
 target_include_directories(modbus_tests PRIVATE

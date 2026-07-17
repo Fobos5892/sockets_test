@@ -1,22 +1,42 @@
 #include "view/ConsoleClientView.hpp"
 
+#include "StartupProgress.hpp"
+
 #include <iostream>
 
 void ConsoleClientView::show_status(const std::string& step, int percent) {
-    const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    const int clamped = percent < client_startup::kProgressMin
+                            ? client_startup::kProgressMin
+                            : (percent > client_startup::kProgressMax ? client_startup::kProgressMax
+                                                                       : percent);
     std::cout << "[startup " << clamped << "%] " << step << std::endl;
 }
 
 void ConsoleClientView::show_input_ready() {
-    std::cout << "\n========================================\n"
-              << " Ready — you can type messages now.\n"
-              << " Format: recipient:text  |  command: /users\n"
-              << "========================================\n"
+    std::cout << "\n"
+              << "============================================================\n"
+              << "  CHAT READY — type your message below\n"
+              << "------------------------------------------------------------\n"
+              << "  Format:   <who>:<text>\n"
+              << "  who   =   nickname  or  numeric id\n"
+              << "  text  =   message body\n"
+              << "------------------------------------------------------------\n"
+              << "  Examples:  bob:hello\n"
+              << "             2:hello\n"
+              << "             all:hello\n"
+              << "  Commands:  /users   /key <id>   /exit\n"
+              << "============================================================\n"
               << std::flush;
 }
 
 void ConsoleClientView::show_input_prompt() {
-    std::cout << "> " << std::flush;
+    // Permanent hint on every turn (incoming chat scrolls the banner away).
+    std::cout << "\n[INPUT] who:message  (example: bob:hello | all:hello)  |  /users  |  /key id  |  /exit\n"
+              << ">>> " << std::flush;
+}
+
+void ConsoleClientView::show_usage() {
+    // Kept for API; ready banner already explains the format.
 }
 
 void ConsoleClientView::show_connected(const std::string& server_ip, uint16_t port) {
@@ -25,11 +45,6 @@ void ConsoleClientView::show_connected(const std::string& server_ip, uint16_t po
 
 void ConsoleClientView::show_my_id(uint32_t id) {
     std::cout << "My id=" << id << std::endl;
-}
-
-void ConsoleClientView::show_usage() {
-    std::cout << "Enter messages as recipient:text (recipient is id or nickname)" << std::endl;
-    std::cout << "Commands: /users — list connected clients" << std::endl;
 }
 
 std::optional<std::string> ConsoleClientView::read_line() {
@@ -75,6 +90,10 @@ void ConsoleClientView::show_error(const std::string& text) {
     std::cerr << "Server error: " << text << std::endl;
 }
 
+void ConsoleClientView::show_notice(const std::string& text) {
+    std::cout << "[notice] " << text << std::endl;
+}
+
 void ConsoleClientView::show_send_failed() {
     std::cerr << "Failed to send message" << std::endl;
 }
@@ -85,4 +104,12 @@ void ConsoleClientView::show_invalid_format() {
 
 void ConsoleClientView::show_decode_error(const std::string& text) {
     std::cerr << "Failed to decode message: " << text << std::endl;
+}
+
+void ConsoleClientView::show_exiting() {
+    std::cout << "Leaving chat — notifying others and closing connection..." << std::endl;
+}
+
+void ConsoleClientView::show_server_disconnected() {
+    std::cout << "Server closed the connection — exiting..." << std::endl;
 }
