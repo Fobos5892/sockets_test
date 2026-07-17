@@ -79,6 +79,7 @@ bob:hello
 common/
   Config, Protocol, ModbusTcp, Message
   transport/IMessageTransport, ModbusMessageTransport   — DIP: абстракция транспорта
+  concurrency/ICommand, QueuedCommandExecutor           — общая Command-очередь
 
 server/
   model/IClientRegistry, ClientRegistry                 — SRP: состояние клиентов
@@ -94,6 +95,7 @@ client/
   model/ClientSession                                   — SRP: состояние сессии
   transport/IClientConnector, TcpClientConnector          — SRP: TCP connect
   view/IClientInputView, IClientOutputView              — ISP: разделённый ввод/вывод
+  view/QueuedClientOutputView + ClientOutputCommands    — адаптер view → QueuedCommandExecutor
   viewmodel/
     ClientViewModel                                     — оркестрация
     IncomingMessagePresenter                            — SRP: AppMessage → View

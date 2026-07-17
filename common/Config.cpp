@@ -1,5 +1,6 @@
 #include "Config.hpp"
 
+#include <algorithm>
 #include <climits>
 #include <fstream>
 #include <sstream>
@@ -33,15 +34,33 @@ std::string executable_dir(const char* argv0) {
 
 }  // namespace
 
-Config Config::load(const std::string& path) {
+Config Config::load(const std::string& path, const ProgressCallback& progress) {
     Config config;
-    std::ifstream file(path);
+    std::ifstream file(path, std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open config file: " + path);
     }
 
+    file.seekg(0, std::ios::end);
+    const std::streamoff size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    if (progress) {
+        progress(0, "Opening " + path);
+    }
+
     std::string line;
+    std::streamoff consumed = 0;
+    int last_percent = -1;
     while (std::getline(file, line)) {
+        consumed += static_cast<std::streamoff>(line.size() + 1);
+        if (progress && size > 0) {
+            const int percent = static_cast<int>((consumed * 100) / size);
+            if (percent != last_percent) {
+                last_percent = percent;
+                progress(std::min(percent, 100), "Reading config");
+            }
+        }
+
         if (line.empty() || line[0] == '#') {
             continue;
         }
@@ -64,6 +83,9 @@ Config Config::load(const std::string& path) {
         config.values_[key] = value;
     }
 
+    if (progress) {
+        progress(100, "Config loaded");
+    }
     return config;
 }
 
@@ -95,16 +117,16 @@ std::string Config::get(const std::string& key, const std::string& default_value
     return it->second;
 }
 
-ServerConfig ServerConfig::from_file(const std::string& path) {
-    const Config config = Config::load(path);
+ServerConfig ServerConfig::from_file(const std::string& path, const Config::ProgressCallback& progress) {
+    const Config config = Config::load(path, progress);
     ServerConfig server;
     server.bind_ip = config.get("bind_ip", "0.0.0.0");
     server.port = static_cast<uint16_t>(std::stoi(config.get("port", "5020")));
     return server;
 }
 
-ClientConfig ClientConfig::from_file(const std::string& path) {
-    const Config config = Config::load(path);
+ClientConfig ClientConfig::from_file(const std::string& path, const Config::ProgressCallback& progress) {
+    const Config config = Config::load(path, progress);
     ClientConfig client;
     client.server_ip = config.get("server_ip", "127.0.0.1");
     client.port = static_cast<uint16_t>(std::stoi(config.get("port", "5020")));

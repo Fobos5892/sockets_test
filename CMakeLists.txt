@@ -53,6 +53,9 @@ target_include_directories(common PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/common
 )
 
+find_package(Threads REQUIRED)
+target_link_libraries(common PUBLIC Threads::Threads)
+
 add_library(server_lib STATIC
     server/Server.cpp
     server/model/ClientRegistry.cpp
@@ -83,6 +86,7 @@ add_library(client_lib STATIC
     client/model/ClientSession.cpp
     client/transport/TcpClientConnector.cpp
     client/view/ConsoleClientView.cpp
+    client/view/QueuedClientOutputView.cpp
     client/viewmodel/ClientViewModel.cpp
     client/viewmodel/IncomingMessagePresenter.cpp
     client/viewmodel/OutgoingMessageBuilder.cpp
@@ -129,6 +133,7 @@ add_executable(modbus_tests
     tests/test_client_parser.cpp
     tests/test_client_builder.cpp
     tests/test_client_presenter.cpp
+    tests/test_queued_output.cpp
     tests/test_registry.cpp
     tests/test_dispatcher.cpp
 )

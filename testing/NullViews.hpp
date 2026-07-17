@@ -21,6 +21,9 @@ public:
 
 class RecordingClientOutputView final : public IClientOutputView {
 public:
+    void show_status(const std::string&, int) override {}
+    void show_input_ready() override {}
+    void show_input_prompt() override {}
     void show_connected(const std::string&, uint16_t) override {}
     void show_my_id(uint32_t) override {}
     void show_usage() override {}
@@ -78,6 +81,9 @@ public:
 
 class NullClientOutputView final : public IClientOutputView {
 public:
+    void show_status(const std::string&, int) override {}
+    void show_input_ready() override {}
+    void show_input_prompt() override {}
     void show_connected(const std::string&, uint16_t) override {}
     void show_my_id(uint32_t) override {}
     void show_usage() override {}

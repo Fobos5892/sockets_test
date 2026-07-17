@@ -6,6 +6,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <string>
+
 ClientViewModel::ClientViewModel(client_model::ClientSession session, IClientInputView& input_view,
                                  IClientOutputView& output_view, std::unique_ptr<IClientConnector> connector,
                                  std::unique_ptr<IMessageTransport> transport)
@@ -36,12 +38,15 @@ void ClientViewModel::shutdown() {
 
 void ClientViewModel::connect_to_server() {
     const auto& config = session_.config();
+    output_view_.show_status("Connecting to " + config.server_ip + ":" + std::to_string(config.port), 45);
     const int socket_fd = connector_->connect(config);
     session_.set_socket_fd(socket_fd);
+    output_view_.show_status("TCP connected", 60);
     output_view_.show_connected(config.server_ip, config.port);
 }
 
 void ClientViewModel::receive_assigned_id() {
+    output_view_.show_status("Waiting for assigned id", 75);
     const auto message = transport_->receive(session_.socket_fd());
     if (!message || message->type != protocol::MsgType::AssignId) {
         throw std::runtime_error("Failed to receive assigned id");
@@ -49,6 +54,7 @@ void ClientViewModel::receive_assigned_id() {
 
     const uint32_t my_id = std::get<protocol::AssignIdPayload>(message->payload).id;
     session_.set_my_id(my_id);
+    output_view_.show_status("Got id=" + std::to_string(my_id), 85);
     output_view_.show_my_id(my_id);
 }
 
@@ -56,6 +62,7 @@ void ClientViewModel::register_nickname() {
     if (!session_.has_nickname()) {
         return;
     }
+    output_view_.show_status("Registering nickname=" + session_.config().nickname, 92);
     transport_->send(session_.socket_fd(), protocol::MsgType::Register,
                      protocol::encode_register(session_.config().nickname));
 }
@@ -64,14 +71,16 @@ void ClientViewModel::run() {
     connect_to_server();
     receive_assigned_id();
     register_nickname();
+    output_view_.show_status("Startup complete", 100);
+    output_view_.show_input_ready();
+    output_view_.show_usage();
     receiver_ = std::thread(&ClientViewModel::receive_loop, this);
     input_loop();
 }
 
 void ClientViewModel::input_loop() {
-    output_view_.show_usage();
-
     while (running_) {
+        output_view_.show_input_prompt();
         const auto line = input_view_.read_line();
         if (!line || line->empty()) {
             if (!line) {

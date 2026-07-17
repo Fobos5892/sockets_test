@@ -1,12 +1,15 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 
 class Config {
 public:
-    static Config load(const std::string& path);
+    using ProgressCallback = std::function<void(int percent, const std::string& message)>;
+
+    static Config load(const std::string& path, const ProgressCallback& progress = nullptr);
     static std::string resolve_config_path(const char* argv0, const std::string& default_filename,
                                            const char* override_path = nullptr);
 
@@ -20,7 +23,8 @@ struct ServerConfig {
     std::string bind_ip;
     uint16_t port{5020};
 
-    static ServerConfig from_file(const std::string& path);
+    static ServerConfig from_file(const std::string& path,
+                                  const Config::ProgressCallback& progress = nullptr);
 };
 
 struct ClientConfig {
@@ -28,5 +32,6 @@ struct ClientConfig {
     uint16_t port{5020};
     std::string nickname;
 
-    static ClientConfig from_file(const std::string& path);
+    static ClientConfig from_file(const std::string& path,
+                                  const Config::ProgressCallback& progress = nullptr);
 };

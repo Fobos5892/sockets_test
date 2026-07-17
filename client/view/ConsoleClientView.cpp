@@ -2,6 +2,23 @@
 
 #include <iostream>
 
+void ConsoleClientView::show_status(const std::string& step, int percent) {
+    const int clamped = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    std::cout << "[startup " << clamped << "%] " << step << std::endl;
+}
+
+void ConsoleClientView::show_input_ready() {
+    std::cout << "\n========================================\n"
+              << " Ready — you can type messages now.\n"
+              << " Format: recipient:text  |  command: /users\n"
+              << "========================================\n"
+              << std::flush;
+}
+
+void ConsoleClientView::show_input_prompt() {
+    std::cout << "> " << std::flush;
+}
+
 void ConsoleClientView::show_connected(const std::string& server_ip, uint16_t port) {
     std::cout << "Connected to " << server_ip << ':' << port << std::endl;
 }

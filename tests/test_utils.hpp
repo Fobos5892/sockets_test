@@ -5,12 +5,13 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <gtest/gtest.h>
+
+#include <atomic>
 #include <cerrno>
 #include <cstring>
-#include <atomic>
 #include <filesystem>
 #include <fstream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -19,39 +20,33 @@
 
 namespace test_utils {
 
-inline std::string write_temp_config(const std::string& content) {
+inline void write_temp_config(const std::string& content, std::string& out_path) {
     static std::atomic<int> counter{0};
     const auto path = std::filesystem::temp_directory_path() /
                       ("modbus_test_" + std::to_string(getpid()) + "_" +
                        std::to_string(counter.fetch_add(1)) + ".conf");
     std::ofstream file(path);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to create temp config");
-    }
+    ASSERT_TRUE(file.is_open()) << "Failed to create temp config: " << path;
     file << content;
-    return path.string();
+    out_path = path.string();
 }
 
-inline int tcp_connect(const std::string& ip, uint16_t port) {
+inline void tcp_connect(const std::string& ip, uint16_t port, int& out_fd) {
     const int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) {
-        throw std::runtime_error("socket failed");
-    }
+    ASSERT_GE(fd, 0) << "socket failed: " << std::strerror(errno);
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) <= 0) {
-        close(fd);
-        throw std::runtime_error("invalid ip");
-    }
+    ASSERT_GT(inet_pton(AF_INET, ip.c_str(), &addr.sin_addr), 0) << "invalid ip: " << ip;
 
     if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        const int connect_errno = errno;
         close(fd);
-        throw std::runtime_error("connect failed: " + std::string(std::strerror(errno)));
+        FAIL() << "connect failed: " << std::strerror(connect_errno);
     }
 
-    return fd;
+    out_fd = fd;
 }
 
 inline void close_fd(int fd) {
@@ -60,21 +55,17 @@ inline void close_fd(int fd) {
     }
 }
 
-inline protocol::AppMessage read_app_message(int fd) {
+inline void read_app_message(int fd, protocol::AppMessage& out) {
     std::vector<uint8_t> buffer;
     modbus::Frame frame;
-    if (!modbus::ModbusTcp::read_frame(fd, buffer, frame)) {
-        throw std::runtime_error("read_frame failed");
-    }
-    return protocol::decode_app_message(frame);
+    ASSERT_TRUE(modbus::ModbusTcp::read_frame(fd, buffer, frame)) << "read_frame failed";
+    out = protocol::decode_app_message(frame);
 }
 
 inline void write_app_message(int fd, protocol::MsgType type, const std::vector<uint8_t>& payload,
                               uint16_t transaction_id = 0) {
     const modbus::Frame frame = protocol::make_frame(type, payload, transaction_id);
-    if (!modbus::ModbusTcp::write_frame(fd, frame)) {
-        throw std::runtime_error("write_frame failed");
-    }
+    ASSERT_TRUE(modbus::ModbusTcp::write_frame(fd, frame)) << "write_frame failed";
 }
 
 inline protocol::ChatPayload make_chat_by_id(uint32_t from_id, uint32_t recipient_id, const std::string& text) {

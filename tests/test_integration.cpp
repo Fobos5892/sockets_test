@@ -42,11 +42,14 @@ protected:
     }
 
     int connect_client() {
-        return test_utils::tcp_connect("127.0.0.1", server_->port());
+        int fd = -1;
+        test_utils::tcp_connect("127.0.0.1", server_->port(), fd);
+        return fd;
     }
 
     uint32_t read_assigned_id(int fd) {
-        const protocol::AppMessage message = test_utils::read_app_message(fd);
+        protocol::AppMessage message;
+        test_utils::read_app_message(fd, message);
         EXPECT_EQ(message.type, protocol::MsgType::AssignId);
         return std::get<protocol::AssignIdPayload>(message.payload).id;
     }
@@ -77,7 +80,8 @@ TEST_F(ServerFixture, DeliversChatByRecipientId) {
     const auto chat = test_utils::make_chat_by_id(sender_id, receiver_id, "hello by id");
     test_utils::write_app_message(sender_fd, protocol::MsgType::Chat, protocol::encode_chat(chat));
 
-    const protocol::AppMessage delivered = test_utils::read_app_message(receiver_fd);
+    protocol::AppMessage delivered;
+    test_utils::read_app_message(receiver_fd, delivered);
     ASSERT_EQ(delivered.type, protocol::MsgType::Deliver);
     const auto& payload = std::get<protocol::DeliverPayload>(delivered.payload);
     EXPECT_EQ(payload.from_id, sender_id);
@@ -99,7 +103,8 @@ TEST_F(ServerFixture, DeliversChatByNickname) {
     const auto chat = test_utils::make_chat_by_nickname(sender_id, "bob", "hello bob");
     test_utils::write_app_message(sender_fd, protocol::MsgType::Chat, protocol::encode_chat(chat));
 
-    const protocol::AppMessage delivered = test_utils::read_app_message(receiver_fd);
+    protocol::AppMessage delivered;
+    test_utils::read_app_message(receiver_fd, delivered);
     ASSERT_EQ(delivered.type, protocol::MsgType::Deliver);
     const auto& payload = std::get<protocol::DeliverPayload>(delivered.payload);
     EXPECT_EQ(payload.from_id, sender_id);
@@ -116,7 +121,8 @@ TEST_F(ServerFixture, ReturnsErrorForUnknownRecipient) {
     const auto chat = test_utils::make_chat_by_id(1, 99, "missing");
     test_utils::write_app_message(sender_fd, protocol::MsgType::Chat, protocol::encode_chat(chat));
 
-    const protocol::AppMessage error = test_utils::read_app_message(sender_fd);
+    protocol::AppMessage error;
+    test_utils::read_app_message(sender_fd, error);
     ASSERT_EQ(error.type, protocol::MsgType::Error);
     EXPECT_EQ(std::get<protocol::ErrorPayload>(error.payload).text, "Unknown recipient: 99");
 
@@ -131,13 +137,15 @@ TEST_F(ServerFixture, RejectsDuplicateNickname) {
 
     test_utils::write_app_message(client1, protocol::MsgType::Register, protocol::encode_register("alice"));
 
-    const protocol::AppMessage joined = test_utils::read_app_message(client2);
+    protocol::AppMessage joined;
+    test_utils::read_app_message(client2, joined);
     ASSERT_EQ(joined.type, protocol::MsgType::UserJoined);
     EXPECT_EQ(std::get<protocol::UserJoinedPayload>(joined.payload).nickname, "alice");
 
     test_utils::write_app_message(client2, protocol::MsgType::Register, protocol::encode_register("alice"));
 
-    const protocol::AppMessage error = test_utils::read_app_message(client2);
+    protocol::AppMessage error;
+    test_utils::read_app_message(client2, error);
     ASSERT_EQ(error.type, protocol::MsgType::Error);
     EXPECT_EQ(std::get<protocol::ErrorPayload>(error.payload).text, "Nickname already taken");
 
@@ -152,7 +160,8 @@ TEST_F(ServerFixture, BroadcastsUserJoinedToExistingClients) {
     const int client2 = connect_client();
     const uint32_t client2_id = read_assigned_id(client2);
 
-    const protocol::AppMessage joined = test_utils::read_app_message(client1);
+    protocol::AppMessage joined;
+    test_utils::read_app_message(client1, joined);
     ASSERT_EQ(joined.type, protocol::MsgType::UserJoined);
     const auto& payload = std::get<protocol::UserJoinedPayload>(joined.payload);
     EXPECT_EQ(payload.id, client2_id);
@@ -169,14 +178,16 @@ TEST_F(ServerFixture, ListUsersReturnsConnectedClients) {
 
     const int client2 = connect_client();
     const uint32_t client2_id = read_assigned_id(client2);
-    (void)test_utils::read_app_message(client1);
+    protocol::AppMessage ignored;
+    test_utils::read_app_message(client1, ignored);
 
     test_utils::write_app_message(client1, protocol::MsgType::Register, protocol::encode_register("alice"));
-    (void)test_utils::read_app_message(client2);
+    test_utils::read_app_message(client2, ignored);
 
     test_utils::write_app_message(client1, protocol::MsgType::ListUsers, protocol::encode_list_users());
 
-    const protocol::AppMessage response = test_utils::read_app_message(client1);
+    protocol::AppMessage response;
+    test_utils::read_app_message(client1, response);
     ASSERT_EQ(response.type, protocol::MsgType::UsersList);
     const auto& users = std::get<protocol::UsersListPayload>(response.payload).users;
     ASSERT_EQ(users.size(), 2U);
@@ -195,11 +206,13 @@ TEST_F(ServerFixture, BroadcastsUserLeftOnDisconnect) {
 
     const int client2 = connect_client();
     read_assigned_id(client2);
-    (void)test_utils::read_app_message(client1);
+    protocol::AppMessage ignored;
+    test_utils::read_app_message(client1, ignored);
 
     test_utils::close_fd(client2);
 
-    const protocol::AppMessage left = test_utils::read_app_message(client1);
+    protocol::AppMessage left;
+    test_utils::read_app_message(client1, left);
     ASSERT_EQ(left.type, protocol::MsgType::UserLeft);
     EXPECT_EQ(std::get<protocol::UserLeftPayload>(left.payload).id, 2U);
 

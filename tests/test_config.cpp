@@ -8,11 +8,13 @@
 #include "tests/test_utils.hpp"
 
 TEST(ConfigTest, LoadsKeyValuePairs) {
-    const std::string path = test_utils::write_temp_config(
+    std::string path;
+    test_utils::write_temp_config(
         "# comment\n"
         "server_ip=10.0.0.5\n"
         "port=6000\n"
-        "nickname= tester \n");
+        "nickname= tester \n",
+        path);
 
     const Config config = Config::load(path);
     EXPECT_EQ(config.get("server_ip"), "10.0.0.5");
@@ -21,9 +23,11 @@ TEST(ConfigTest, LoadsKeyValuePairs) {
 }
 
 TEST(ConfigTest, ServerConfigFromFile) {
-    const std::string path = test_utils::write_temp_config(
+    std::string path;
+    test_utils::write_temp_config(
         "bind_ip=127.0.0.1\n"
-        "port=5021\n");
+        "port=5021\n",
+        path);
 
     const ServerConfig config = ServerConfig::from_file(path);
     EXPECT_EQ(config.bind_ip, "127.0.0.1");
@@ -31,7 +35,8 @@ TEST(ConfigTest, ServerConfigFromFile) {
 }
 
 TEST(ConfigTest, ClientConfigFromFileUsesDefaults) {
-    const std::string path = test_utils::write_temp_config("nickname=bob\n");
+    std::string path;
+    test_utils::write_temp_config("nickname=bob\n", path);
 
     const ClientConfig config = ClientConfig::from_file(path);
     EXPECT_EQ(config.server_ip, "127.0.0.1");

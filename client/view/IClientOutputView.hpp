@@ -10,6 +10,9 @@ class IClientOutputView {
 public:
     virtual ~IClientOutputView() = default;
 
+    virtual void show_status(const std::string& step, int percent) = 0;
+    virtual void show_input_ready() = 0;
+    virtual void show_input_prompt() = 0;
     virtual void show_connected(const std::string& server_ip, uint16_t port) = 0;
     virtual void show_my_id(uint32_t id) = 0;
     virtual void show_usage() = 0;
